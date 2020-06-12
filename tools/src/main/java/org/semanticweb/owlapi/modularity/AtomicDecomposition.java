@@ -399,6 +399,7 @@ public final class AtomicDecomposition implements HasAxioms {
 		for (final OWLAxiom alpha : axioms) {
 			buildAtomsInModule(alpha, Optional.empty());
 		}
+		transitiveClose();
 	}
 
 	/**
@@ -461,6 +462,38 @@ public final class AtomicDecomposition implements HasAxioms {
 					"The given axiom must be contained in the axiom base of this atomic decomposition");
 		}
 		return moduleToSignatureOf.get(axiom).stream();
+	}
+
+	/**
+	 * Closes the dependency-relation transitively.
+	 */
+	private void transitiveClose() {
+		Set<Atom> last;
+		final Set<Atom> processed = new HashSet<>();
+		final Set<Atom> nextToProcess = new HashSet<>();
+		// start with atoms that depend on no other atom, but any other atom depends on
+		// them
+		atoms().filter(next -> next.dependencies.isEmpty() && !next.dependents.isEmpty()).forEach(nextToProcess::add);
+		while (!nextToProcess.isEmpty()) {
+			processed.addAll(nextToProcess);
+			last = nextToProcess;
+			nextToProcess.clear();
+			last.stream().flatMap(Atom::dependents).filter(n -> processed.containsAll(n.dependencies)).forEach(n -> {
+				final Set<Atom> newDependencies = n.dependencies.stream().flatMap(Atom::dependencies)
+						.collect(Collectors.toSet());
+				n.dependencies.addAll(newDependencies);
+				newDependencies.forEach(m -> m.dependents.add(n));
+				nextToProcess.add(n);
+			});
+		}
+
+		// tauAtom depends on every (other) atom
+		if (tauAtom.isPresent()) {
+			atoms().filter(next -> !tauAtom.get().equals(next)).forEach(next -> {
+				next.dependents.add(tauAtom.get());
+				tauAtom.get().dependencies.add(next);
+			});
+		}
 	}
 
 	protected void updateDependencies(final OWLAxiom alpha, final OWLAxiom gamma) {
